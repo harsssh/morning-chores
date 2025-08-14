@@ -217,8 +217,7 @@ def make_heatmap_svg(daily: dict, days: int = 365) -> str:
             return "#c6e48b"
         if v == 2:
             return "#7bc96f"
-        if v == 3:
-            return "#239a3b"
+        # 3人以上
         return "#196127"
 
     svg = [
