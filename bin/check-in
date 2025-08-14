@@ -9,11 +9,17 @@ Usage:
 Options:
   -m NOTE       ひとことメモ（任意）
   -d DATE       記録する日付（省略時はJSTの本日）
-  -u USER       ユーザー名（省略時は ASAKATSU_USER→git config user.name→user.email の順）
+  -u USER       ユーザー名（省略時は git config user.name→user.email の順で推定）
   --no-push     pushしない
   --force       同一日・同一ユーザーの重複チェックを無効化
 USAGE
 }
+
+# 引数なしならヘルプ表示
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 0
+fi
 
 NOTE=""; DATE=""; USER_OVERRIDE=""; PUSH=1; FORCE=0
 while [[ $# -gt 0 ]]; do
@@ -38,8 +44,6 @@ if [[ -z "${DATE}" ]]; then DATE="$(TZ=Asia/Tokyo date +%F)"; fi
 # USER 決定
 if [[ -n "${USER_OVERRIDE}" ]]; then
   USER="${USER_OVERRIDE}"
-elif [[ -n "${ASAKATSU_USER:-}" ]]; then  # 既存の環境変数を流用可（任意）
-  USER="${ASAKATSU_USER}"
 else
   USER="$(git config --get user.name 2>/dev/null || true)"
   if [[ -z "${USER}" ]]; then
@@ -54,9 +58,9 @@ if [[ "${FORCE}" -eq 0 ]]; then
   EXIST="$(git log --all \
     --grep="^Check-In-Date: ${DATE}$" \
     --grep="^Check-In-User: ${USER}$" \
-    --all-match -n 1 --pretty=format:%H)"
+    --all-match -n 1 --pretty=format:%H || true)"
   if [[ -n "${EXIST}" ]]; then
-    echo "既に本日(${DATE})のチェックインが存在します: ${USER}"
+    echo "既に ${DATE} のチェックインが存在します: ${USER}"
     exit 0
   fi
 fi
@@ -65,7 +69,13 @@ SUBJECT="check-in ${DATE} @${USER}"
 BODY=("Check-In-Date: ${DATE}" "Check-In-User: ${USER}")
 if [[ -n "${NOTE}" ]]; then BODY+=("Note: ${NOTE}"); fi
 
-git commit --allow-empty -m "${SUBJECT}" $(printf -- ' -m %q' "${BODY[@]}")
+# 配列で安全に引数を構築
+args=(--allow-empty -m "${SUBJECT}")
+for m in "${BODY[@]}"; do
+  args+=(-m "$m")
+done
+
+git commit "${args[@]}"
 
 if [[ "${PUSH}" -eq 1 ]]; then
   BRANCH="$(git rev-parse --abbrev-ref HEAD)"
@@ -73,3 +83,4 @@ if [[ "${PUSH}" -eq 1 ]]; then
 fi
 
 echo "チェックイン完了: ${SUBJECT}"
+
