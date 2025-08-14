@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  bin/check-in [-m NOTE] [-d YYYY-MM-DD] [-u USER] [--no-push] [--force]
+
+Options:
+  -m NOTE       ひとことメモ（任意）
+  -d DATE       記録する日付（省略時はJSTの本日）
+  -u USER       ユーザー名（省略時は ASAKATSU_USER→git config user.name→user.email の順）
+  --no-push     pushしない
+  --force       同一日・同一ユーザーの重複チェックを無効化
+USAGE
+}
+
+NOTE=""; DATE=""; USER_OVERRIDE=""; PUSH=1; FORCE=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -m) NOTE="$2"; shift 2;;
+    -d) DATE="$2"; shift 2;;
+    -u) USER_OVERRIDE="$2"; shift 2;;
+    --no-push) PUSH=0; shift;;
+    --force) FORCE=1; shift;;
+    -h|--help) usage; exit 0;;
+    *) echo "unknown option: $1" >&2; usage; exit 2;;
+  esac
+done
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[[ -n "${ROOT}" ]] || { echo "git 管理下で実行してください"; exit 1; }
+cd "${ROOT}"
+
+# JST の今日
+if [[ -z "${DATE}" ]]; then DATE="$(TZ=Asia/Tokyo date +%F)"; fi
+
+# USER 決定
+if [[ -n "${USER_OVERRIDE}" ]]; then
+  USER="${USER_OVERRIDE}"
+elif [[ -n "${ASAKATSU_USER:-}" ]]; then  # 既存の環境変数を流用可（任意）
+  USER="${ASAKATSU_USER}"
+else
+  USER="$(git config --get user.name 2>/dev/null || true)"
+  if [[ -z "${USER}" ]]; then
+    EMAIL="$(git config --get user.email 2>/dev/null || true)"
+    USER="${EMAIL%@*}"
+  fi
+fi
+[[ -n "${USER}" ]] || { echo "ユーザー名が特定できません (-u で指定可)"; exit 1; }
+
+# 重複チェック（Check-In-Date + Check-In-User の組み合わせ）
+if [[ "${FORCE}" -eq 0 ]]; then
+  EXIST="$(git log --all \
+    --grep="^Check-In-Date: ${DATE}$" \
+    --grep="^Check-In-User: ${USER}$" \
+    --all-match -n 1 --pretty=format:%H)"
+  if [[ -n "${EXIST}" ]]; then
+    echo "既に本日(${DATE})のチェックインが存在します: ${USER}"
+    exit 0
+  fi
+fi
+
+SUBJECT="check-in ${DATE} @${USER}"
+BODY=("Check-In-Date: ${DATE}" "Check-In-User: ${USER}")
+if [[ -n "${NOTE}" ]]; then BODY+=("Note: ${NOTE}"); fi
+
+git commit --allow-empty -m "${SUBJECT}" $(printf -- ' -m %q' "${BODY[@]}")
+
+if [[ "${PUSH}" -eq 1 ]]; then
+  BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+  git push -u origin "${BRANCH}"
+fi
+
+echo "チェックイン完了: ${SUBJECT}"
