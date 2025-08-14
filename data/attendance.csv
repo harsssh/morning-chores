@@ -1,1 +1,3 @@
-date,user,commit
+date,user,commit,author_name,author_email
+2025-08-14,harsssh,"
+42dbe530ce6076df100b70b595b0d4722ca2db0d",Kentaro Mizuki,66548698+harsssh@users.noreply.github.com
