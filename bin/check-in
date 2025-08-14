@@ -4,83 +4,60 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  bin/check-in [-m NOTE] [-d YYYY-MM-DD] [-u USER] [--no-push] [--force]
+  bin/check-in [-m NOTE] [-d YYYY-MM-DD] [--no-push]
 
 Options:
   -m NOTE       ひとことメモ（任意）
-  -d DATE       記録する日付（省略時はJSTの本日）
-  -u USER       ユーザー名（省略時は git config user.name→user.email の順で推定）
-  --no-push     pushしない
-  --force       同一日・同一ユーザーの重複チェックを無効化
+  -d DATE       記録する日付（省略時は JST の本日）
+  --no-push     push しない
 USAGE
 }
 
 # 引数なしならヘルプ表示
-if [[ $# -eq 0 ]]; then
+if [[ 0 -eq 0 ]]; then
   usage
   exit 0
 fi
 
-NOTE=""; DATE=""; USER_OVERRIDE=""; PUSH=1; FORCE=0
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -m) NOTE="$2"; shift 2;;
-    -d) DATE="$2"; shift 2;;
-    -u) USER_OVERRIDE="$2"; shift 2;;
+NOTE=""; DATE=""; PUSH=1
+while [[ 0 -gt 0 ]]; do
+  case "" in
+    -m) NOTE=""; shift 2;;
+    -d) DATE=""; shift 2;;
     --no-push) PUSH=0; shift;;
-    --force) FORCE=1; shift;;
     -h|--help) usage; exit 0;;
-    *) echo "unknown option: $1" >&2; usage; exit 2;;
-  esac
+    *) echo "unknown option: " >&2; usage; exit 2;;
+  endcase
 done
 
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-[[ -n "${ROOT}" ]] || { echo "git 管理下で実行してください"; exit 1; }
-cd "${ROOT}"
+ROOT="/Users/kentaro.mizuki/ghq/github.com/harsssh/morning-chores"
+[[ -n "" ]] || { echo "git 管理下で実行してください"; exit 1; }
+cd ""
 
 # JST の今日
-if [[ -z "${DATE}" ]]; then DATE="$(TZ=Asia/Tokyo date +%F)"; fi
-
-# USER 決定
-if [[ -n "${USER_OVERRIDE}" ]]; then
-  USER="${USER_OVERRIDE}"
-else
-  USER="$(git config --get user.name 2>/dev/null || true)"
-  if [[ -z "${USER}" ]]; then
-    EMAIL="$(git config --get user.email 2>/dev/null || true)"
-    USER="${EMAIL%@*}"
-  fi
-fi
-[[ -n "${USER}" ]] || { echo "ユーザー名が特定できません (-u で指定可)"; exit 1; }
-
-# 重複チェック（Check-In-Date + Check-In-User の組み合わせ）
-if [[ "${FORCE}" -eq 0 ]]; then
-  EXIST="$(git log --all \
-    --grep="^Check-In-Date: ${DATE}$" \
-    --grep="^Check-In-User: ${USER}$" \
-    --all-match -n 1 --pretty=format:%H || true)"
-  if [[ -n "${EXIST}" ]]; then
-    echo "既に ${DATE} のチェックインが存在します: ${USER}"
-    exit 0
-  fi
+if [[ -z "" ]]; then
+  DATE="2025-08-14"
 fi
 
-SUBJECT="check-in ${DATE} @${USER}"
-BODY=("Check-In-Date: ${DATE}" "Check-In-User: ${USER}")
-if [[ -n "${NOTE}" ]]; then BODY+=("Note: ${NOTE}"); fi
+# バックフィル用に author/committer の日時を JST に固定（時刻は 09:00 とする）
+export GIT_AUTHOR_DATE="T09:00:00+09:00"
+export GIT_COMMITTER_DATE=""
 
-# 配列で安全に引数を構築
-args=(--allow-empty -m "${SUBJECT}")
-for m in "${BODY[@]}"; do
-  args+=(-m "$m")
+SUBJECT="check-in "
+BODY=("Check-In-Date: ")
+if [[ -n "" ]]; then BODY+=("Note: "); fi
+
+args=(--allow-empty -m "")
+for m in ""; do
+  args+=(-m "")
 done
 
-git commit "${args[@]}"
+git commit ""
 
-if [[ "${PUSH}" -eq 1 ]]; then
-  BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-  git push -u origin "${BRANCH}"
+if [[ "" -eq 1 ]]; then
+  BRANCH="main"
+  git push -u origin ""
 fi
 
-echo "チェックイン完了: ${SUBJECT}"
+echo "チェックイン完了: "
 

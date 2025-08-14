@@ -2,35 +2,59 @@
 import csv, datetime as dt, json, re, subprocess, sys
 from collections import Counter
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-ROOT = Path(__file__).resolve().parents[1]
-DATA = ROOT / "data"
-DOCS = ROOT / "docs"
+ROOT   = Path(__file__).resolve().parents[1]
+DATA   = ROOT / "data"
+ASSETS = ROOT  / "assets"
+JST    = ZoneInfo("Asia/Tokyo")
 
-SUBJECT_RE = re.compile(r"^check-in\s+(\d{4}-\d{2}-\d{2})\s+@(\S+)", re.I|re.M)
-DATE_RE    = re.compile(r"^Check-In-Date:\s*(\d{4}-\d{2}-\d{2})\s*$", re.M)
-USER_RE    = re.compile(r"^Check-In-User:\s*(\S+)\s*$", re.M)
+DATE_RE = re.compile(r"^Check-In-Date:\s*(\d{4}-\d{2}-\d{2})\s*$", re.M)
+SUBJECT_RE = re.compile(r"^check-in\b", re.I)
 
 def git_log():
-    fmt = "%H%x1f%ad%x1f%s%x1f%b%x1e"
+    # id | author-iso | author-name | author-email | subject | RAW body
+    fmt = "%H%x1f%aI%x1f%an%x1f%ae%x1f%s%x1f%B%x1e"
     out = subprocess.check_output(
-        ["git","log","--date=short","--pretty=format:"+fmt], cwd=ROOT
+        ["git","log","--no-color","--no-notes","--pretty=format:"+fmt,"--date=iso-strict"],
+        cwd=ROOT
     )
     raw = out.decode("utf-8", errors="replace").strip("\n\x1e")
     for rec in raw.split("\x1e"):
         if not rec: continue
-        _id, _ad, _subj, _body = rec.split("\x1f")
-        yield _id, _ad, _subj, _body
+        cid, aiso, an, ae, subj, body = rec.split("\x1f")
+        yield cid, aiso, an, ae, subj, body
+
+def canonical_user(author_name: str, author_email: str) -> str:
+    ae = (author_email or "").lower()
+    # GitHub noreply -> login 抽出
+    m = re.match(r"\d+\+([a-z0-9-]+)@users\.noreply\.github\.com$", ae)
+    if m: return m.group(1)
+    m = re.match(r"([a-z0-9-]+)@users\.noreply\.github\.com$", ae)
+    if m: return m.group(1)
+    if ae and "@" in ae:
+        return ae.split("@", 1)[0]
+    # name をフォールバック（空白→-、小文字化）
+    name = re.sub(r"\s+", "-", (author_name or "").strip().lower())
+    return name or "unknown"
+
+def jst_date_from_iso(iso: str) -> str:
+    # 例: 2025-08-14T04:00:00+00:00
+    dt_utc = dt.datetime.fromisoformat(iso)
+    return dt_utc.astimezone(JST).date().isoformat()
 
 def extract_checkins():
     rows = []
-    for cid, adate, subj, body in git_log():
-        # トレイラーがあるもののみをチェックインとして扱う（件名は任意）
-        if not DATE_RE.search(body) or not USER_RE.search(body):
+    for cid, aiso, an, ae, subj, body in git_log():
+        # 対象コミットの判定
+        if DATE_RE.search(body) is None and SUBJECT_RE.search(subj) is None:
             continue
-        date = DATE_RE.search(body).group(1)
-        user = USER_RE.search(body).group(1)
-        rows.append({"commit": cid, "date": date, "user": user})
+        # 日付決定
+        m = DATE_RE.search(body)
+        date = m.group(1) if m else jst_date_from_iso(aiso)
+        # ユーザー決定（author から導出）
+        user = canonical_user(an, ae)
+        rows.append({"commit": cid, "date": date, "user": user, "author_name": an, "author_email": ae})
     return rows
 
 def validate(rows):
@@ -55,64 +79,58 @@ def aggregate(rows):
 def write_data(rows, daily, per_user):
     DATA.mkdir(parents=True, exist_ok=True)
     with (DATA/"attendance.csv").open("w", newline="", encoding="utf-8") as fp:
-        w = csv.writer(fp); w.writerow(["date","user","commit"])
+        w = csv.writer(fp)
+        w.writerow(["date","user","commit","author_name","author_email"])
         for r in sorted(rows, key=lambda x:(x["date"], x["user"])):
-            w.writerow([r["date"], r["user"], r["commit"]])
+            w.writerow([r["date"], r["user"], r["commit"], r["author_name"], r["author_email"]])
     (DATA/"daily_counts.json").write_text(json.dumps(daily, ensure_ascii=False, indent=2), encoding="utf-8")
     (DATA/"per_user.json").write_text(json.dumps(per_user, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def make_heatmap_svg(daily, days=365):
-    end = dt.date.today(); start = end - dt.timedelta(days=days-1)
+    end = dt.datetime.now(JST).date()
+    start = end - dt.timedelta(days=days-1)
     dates = [start + dt.timedelta(days=i) for i in range(days)]
     cols = (days + start.weekday()) // 7 + 1
     cell, gap, pad = 14, 2, 30
     w = pad + cols*(cell+gap) + pad
     h = pad + 7*(cell+gap) + pad
+
     def color(v):
         if v == 0: return "#ebedf0"
         if v == 1: return "#c6e48b"
         if v == 2: return "#7bc96f"
         if v == 3: return "#239a3b"
         return "#196127"
+
     svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" font-family="system-ui, sans-serif" font-size="10">']
     svg.append(f'<rect width="{w}" height="{h}" fill="white"/>')
     svg.append(f'<text x="{pad}" y="18" font-weight="600">Attendance (last {days} days)</text>')
-    x0, y0 = pad, pad + 10; col = 0
+    x0, y0, col = pad, pad + 10, 0
     for d in dates:
         v = daily.get(d.isoformat(), 0)
-        x = x0 + col*(cell+gap); y = y0 + d.weekday()*(cell+gap)
+        x = x0 + col*(cell+gap)
+        y = y0 + d.weekday()*(cell+gap)
         svg.append(f'<rect x="{x}" y="{y}" width="{cell}" height="{cell}" rx="2" fill="{color(v)}"><title>{d} : {v} participants</title></rect>')
-        if d.weekday() == 6: col += 1
+        if d.weekday() == 6:
+            col += 1
     svg.append("</svg>")
     return "\n".join(svg)
 
-def write_docs(daily, per_user):
-    DOCS.mkdir(parents=True, exist_ok=True)
-    (DOCS/"heatmap.svg").write_text(make_heatmap_svg(daily, 365), encoding="utf-8")
-    total = sum(per_user.values())
-    top = sorted(per_user.items(), key=lambda x: x[1], reverse=True)[:10]
-    html = f"""<!doctype html><meta charset="utf-8"><title>ダッシュボード</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>body{{font-family:system-ui,sans-serif;margin:20px}}.card{{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:16px 0}}
-table{{border-collapse:collapse}}th,td{{padding:6px 10px;border-bottom:1px solid #eee;text-align:left}}
-.badge{{display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6}}</style>
-<h1>朝の活動ログ</h1>
-<p class="badge">累計参加回数: <strong>{total}</strong></p>
-<div class="card"><h2>日別ヒートマップ（直近1年）</h2><img src="./heatmap.svg" alt="heatmap"></div>
-<div class="card"><h2>参加者ランキング（Top 10）</h2>
-<table><thead><tr><th>参加者</th><th>回数</th></tr></thead><tbody>
-{''.join(f'<tr><td>{u}</td><td>{c}</td></tr>' for u,c in top)}
-</tbody></table></div>
-<p style="color:#6b7280">最終更新: {dt.datetime.now().isoformat(timespec='seconds')}</p>"""
-    (DOCS/"index.html").write_text(html, encoding="utf-8")
+def write_assets(daily):
+    ASSETS.mkdir(parents=True, exist_ok=True)
+    (ASSETS/"heatmap.svg").write_text(make_heatmap_svg(daily, 365), encoding="utf-8")
 
 def main():
     rows = extract_checkins()
     validate(rows)
     daily, per_user = aggregate(rows)
     write_data(rows, daily, per_user)
-    write_docs(daily, per_user)
+    write_assets(daily)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"[aggregate.py] ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
 
