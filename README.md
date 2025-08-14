@@ -7,7 +7,7 @@
 
 参加ヒートマップ (AIの雑実装なので、3人以上は色が変わらない)
 
-![heatmap](assets/heatmap.svg)
+![heatmap](assets/heatmap.svg?t=1755215442)
 
 ## 記録の付け方
 

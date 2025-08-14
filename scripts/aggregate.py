@@ -243,9 +243,38 @@ def make_heatmap_svg(daily: dict, days: int = 365) -> str:
     return "\n".join(svg)
 
 
+def update_readme_heatmap():
+    """
+    README.md のヒートマップ画像 URL にキャッシュバスティング用のタイムスタンプを追加
+    """
+    readme_path = ROOT / "README.md"
+    if not readme_path.exists():
+        return
+        
+    # 現在時刻を Unix タイムスタンプとして取得
+    timestamp = int(dt.datetime.now().timestamp())
+    
+    content = readme_path.read_text(encoding="utf-8")
+    
+    # ヒートマップの画像参照を置換（キャッシュバスティングパラメータ付き）
+    # ![heatmap](assets/heatmap.svg) -> ![heatmap](assets/heatmap.svg?t=timestamp)
+    # 既存のクエリパラメータがある場合も考慮
+    new_content = re.sub(
+        r'(\!\[heatmap\]\(assets/heatmap\.svg)(\?[^)]*)?(\))',
+        rf'\1?t={timestamp}\3',
+        content
+    )
+    
+    if new_content != content:
+        readme_path.write_text(new_content, encoding="utf-8")
+
+
 def write_assets(daily):
     ASSETS.mkdir(parents=True, exist_ok=True)
     (ASSETS / "heatmap.svg").write_text(make_heatmap_svg(daily, 365), encoding="utf-8")
+    
+    # README.md にキャッシュバスティングパラメータを追加
+    update_readme_heatmap()
 
 
 # ------------------------------
