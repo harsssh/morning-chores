@@ -14,50 +14,51 @@ USAGE
 }
 
 # 引数なしならヘルプ表示
-if [[ 0 -eq 0 ]]; then
+if [[ $# -eq 0 ]]; then
   usage
   exit 0
 fi
 
 NOTE=""; DATE=""; PUSH=1
-while [[ 0 -gt 0 ]]; do
-  case "" in
-    -m) NOTE=""; shift 2;;
-    -d) DATE=""; shift 2;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -m) NOTE="$2"; shift 2;;
+    -d) DATE="$2"; shift 2;;
     --no-push) PUSH=0; shift;;
     -h|--help) usage; exit 0;;
-    *) echo "unknown option: " >&2; usage; exit 2;;
-  endcase
+    *) echo "unknown option: $1" >&2; usage; exit 2;;
+  esac
 done
 
-ROOT="/Users/kentaro.mizuki/ghq/github.com/harsssh/morning-chores"
-[[ -n "" ]] || { echo "git 管理下で実行してください"; exit 1; }
-cd ""
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[[ -n "${ROOT}" ]] || { echo "git 管理下で実行してください"; exit 1; }
+cd "${ROOT}"
 
 # JST の今日
-if [[ -z "" ]]; then
-  DATE="2025-08-14"
+if [[ -z "${DATE}" ]]; then
+  DATE="$(TZ=Asia/Tokyo date +%F)"
 fi
 
-# バックフィル用に author/committer の日時を JST に固定（時刻は 09:00 とする）
-export GIT_AUTHOR_DATE="T09:00:00+09:00"
-export GIT_COMMITTER_DATE=""
+# author/committer の日時を JST に固定（時刻は 09:00 とする）
+export GIT_AUTHOR_DATE="${DATE}T09:00:00+09:00"
+export GIT_COMMITTER_DATE="${GIT_AUTHOR_DATE}"
 
-SUBJECT="check-in "
-BODY=("Check-In-Date: ")
-if [[ -n "" ]]; then BODY+=("Note: "); fi
+SUBJECT="check-in ${DATE}"
+BODY=("Check-In-Date: ${DATE}")
+if [[ -n "${NOTE}" ]]; then BODY+=("Note: ${NOTE}"); fi
 
-args=(--allow-empty -m "")
-for m in ""; do
-  args+=(-m "")
+# 配列で安全に -m を積む
+args=(--allow-empty -m "${SUBJECT}")
+for m in "${BODY[@]}"; do
+  args+=(-m "$m")
 done
 
-git commit ""
+git commit "${args[@]}"
 
-if [[ "" -eq 1 ]]; then
-  BRANCH="main"
-  git push -u origin ""
+if [[ "${PUSH}" -eq 1 ]]; then
+  BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+  git push -u origin "${BRANCH}"
 fi
 
-echo "チェックイン完了: "
+echo "チェックイン完了: ${SUBJECT}"
 
