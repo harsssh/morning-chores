@@ -38,6 +38,9 @@ SUBJECT_RE = re.compile(r"^check-in\b", re.I)
 # 重複時の採用ルール: "earliest" or "latest"
 PREFER_ON_DUP = "earliest"
 
+# 参加率計算用の期待参加者数
+EXPECTED_PARTICIPANTS = 4
+
 
 # ------------------------------
 # Git ログ取得
@@ -211,23 +214,30 @@ def make_heatmap_svg(daily: dict, days: int = 365) -> str:
     h = pad + 7 * (cell + gap) + pad
 
     def color(v: int) -> str:
+        """参加率に基づいて色を決定"""
         if v == 0:
-            return "#ebedf0"
-        if v == 1:
-            return "#c6e48b"
-        if v == 2:
-            return "#7bc96f"
-        if v == 3:
-            return "#239a3b"
-        # 4人以上
-        return "#196127"
+            return "#ebedf0"  # 参加者なし (0%)
+        
+        # 参加率を計算 (0.0 - 1.0+)
+        rate = v / EXPECTED_PARTICIPANTS
+        
+        if rate <= 0.25:       # 1-25%
+            return "#c6e48b"   # 薄い緑
+        elif rate <= 0.50:     # 26-50%
+            return "#7bc96f"   # 中程度の緑
+        elif rate <= 0.75:     # 51-75%
+            return "#239a3b"   # やや濃い緑
+        elif rate <= 1.0:      # 76-100%
+            return "#196127"   # 濃い緑
+        else:                  # 100%超過
+            return "#0d2818"   # 最も濃い緑
 
     svg = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
         f'font-family="system-ui, sans-serif" font-size="10">'
     ]
     svg.append(f'<rect width="{w}" height="{h}" fill="white"/>')
-    svg.append(f'<text x="{pad}" y="18" font-weight="600">Attendance (last {days} days)</text>')
+    svg.append(f'<text x="{pad}" y="18" font-weight="600">Attendance (last {days} days) - Rate based coloring</text>')
 
     x0, y0, col = pad, pad + 10, 0
     for d in dates:
@@ -236,7 +246,7 @@ def make_heatmap_svg(daily: dict, days: int = 365) -> str:
         y = y0 + d.weekday() * (cell + gap)
         svg.append(
             f'<rect x="{x}" y="{y}" width="{cell}" height="{cell}" rx="2" fill="{color(v)}">'
-            f'<title>{d} : {v} participants</title></rect>'
+            f'<title>{d} : {v} participants ({v/EXPECTED_PARTICIPANTS*100:.0f}%)</title></rect>'
         )
         if d.weekday() == 6:
             col += 1
